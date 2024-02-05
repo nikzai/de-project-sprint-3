@@ -1,0 +1,22 @@
+Перед началом работ запустил скрипт:
+-- Добавление новой колонки со статусом в staging.user_order_log
+ALTER TABLE staging.user_order_log
+  ADD COLUMN status VARCHAR(100);
+UPDATE staging.user_order_log 
+   SET status = 'shipped';
+   
+-- Добавление новой колонки со статусом в mart.f_sales
+ALTER TABLE mart.f_sales
+  ADD COLUMN status VARCHAR(100);
+UPDATE mart.f_sales 
+   SET status = 'shipped';
+
+Как это работает:
+1. Получаем файлики по API;
+2. Грузим в stage;
+3. Грузим в данные в dict;
+4. Грузим данные в таблицу фактов mart.f_sales;
+5. Запускаем процедуру mart.proc_customer_retention_insert, которая пересчитывает таблицу mart.f_customer_retention.
+В подказке видно, что мы должны добавлять туда данные, но я не понял почему, это же витрина, и там ничего не было сказано про историчность.
+А если это не так, то не понимаю откуда там дубликаты могут возникнуть при перезапуске DAG.
+6. При перезапуске даг мы удаляем данные из f_sales за дату перезапуска и делаем upsert для stage.
