@@ -6,10 +6,11 @@ from sqlalchemy.dialects.postgresql import insert
 
 from datetime import datetime, timedelta
 from airflow import DAG
-from airflow.operators.python_operator import PythonOperator, BranchPythonOperator
+from airflow.operators.python_operator import PythonOperator
 from airflow.providers.postgres.operators.postgres import PostgresOperator
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from airflow.hooks.http_hook import HttpHook
+from airflow.models import Variable
 
 http_conn_id = HttpHook.get_connection('http_conn_id')
 api_key = http_conn_id.extra_dejson.get('api_key')
@@ -17,20 +18,20 @@ base_url = http_conn_id.host
 
 postgres_conn_id = 'postgresql_de'
 
-nickname = 'nikitazaitsev'
-cohort = '22'
+NICKNAME = Variable.get('nickname')
+COHORT = Variable.get('cohort')
 
 headers = {
-    'X-Nickname': nickname,
-    'X-Cohort': cohort,
+    'X-Nickname': NICKNAME,
+    'X-Cohort': COHORT,
     'X-Project': 'True',
     'X-API-KEY': api_key,
     'Content-Type': 'application/x-www-form-urlencoded'
 }
 
+
 def insert_on_conflict_update(table, conn, keys, data_iter):
     data = [dict(zip(keys, row)) for row in data_iter]
-
     stmt = insert(table.table).values(data)
     stmt = stmt .on_conflict_do_update(
         constraint=f"{table.table.name}_pk",
@@ -38,6 +39,7 @@ def insert_on_conflict_update(table, conn, keys, data_iter):
     )
     result = conn.execute(stmt)
     return result.rowcount
+
 
 def generate_report(ti):
     print('Making request generate_report')
@@ -84,15 +86,15 @@ def get_increment(date, ti):
 
     increment_id = json.loads(response.content)['data']['increment_id']
     if not increment_id:
-        raise ValueError(f'Increment is empty. Most probably due to error in API call.')
-    
+        raise ValueError('Increment is empty. Most probably due to error in API call.')
+
     ti.xcom_push(key='increment_id', value=increment_id)
     print(f'increment_id={increment_id}')
 
 
 def upload_data_to_staging(filename, date, pg_table, pg_schema, ti):
     increment_id = ti.xcom_pull(key='increment_id')
-    s3_filename = f'https://storage.yandexcloud.net/s3-sprint3/cohort_{cohort}/{nickname}/project/{increment_id}/{filename}'
+    s3_filename = f'https://storage.yandexcloud.net/s3-sprint3/cohort_{COHORT}/{NICKNAME}/project/{increment_id}/{filename}'
     print(s3_filename)
     local_filename = date.replace('-', '') + '_' + filename
     print(local_filename)
@@ -102,8 +104,8 @@ def upload_data_to_staging(filename, date, pg_table, pg_schema, ti):
     print(response.content)
 
     df = pd.read_csv(local_filename)
-    df=df.drop('id', axis=1)
-    df=df.drop_duplicates(subset=['uniq_id'])
+    df = df.drop('id', axis=1)
+    df = df.drop_duplicates(subset=['uniq_id'])
 
     if 'status' not in df.columns:
         df['status'] = 'shipped'
@@ -122,7 +124,7 @@ args = {
     'email': ['student@example.com'],
     'email_on_failure': False,
     'email_on_retry': False,
-    'retries': 0
+    'retries': 5
 }
 
 business_dt = '{{ ds }}'
